@@ -49,6 +49,17 @@ body {
   min-width: 0;
 }
 
+.save-status {
+  font-size: 11px;
+  color: #a6adc8;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.save-status.saved {
+  color: #a6e3a1;
+}
+
 .toggle-btn {
   padding: 5px 10px;
   font-size: 12px;

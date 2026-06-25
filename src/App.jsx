@@ -101,19 +101,63 @@ export default function App() {
   const [content, setContent] = useState(null)
   const [fileName, setFileName] = useState(null)
   const [editorOpen, setEditorOpen] = useState(false)
+  const [saveStatus, setSaveStatus] = useState(null)
   const inputRef = useRef(null)
   const editorRef = useRef(null)
   const previewRef = useRef(null)
   const activeBlockRef = useRef(null)
   const activeCodeLineRef = useRef(null)
+  const fileHandleRef = useRef(null)
+  const saveTimerRef = useRef(null)
+  const savedFadeTimerRef = useRef(null)
 
-  function handleFile(e) {
+  async function openFile() {
+    if ('showOpenFilePicker' in window) {
+      try {
+        const [handle] = await window.showOpenFilePicker({
+          types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md', '.markdown', '.txt'] } }],
+        })
+        const file = await handle.getFile()
+        fileHandleRef.current = handle
+        setFileName(file.name)
+        setContent(await file.text())
+        setSaveStatus(null)
+      } catch (err) {
+        if (err.name !== 'AbortError') console.error(err)
+      }
+    } else {
+      inputRef.current.click()
+    }
+  }
+
+  function handleFileInput(e) {
     const file = e.target.files[0]
     if (!file) return
+    fileHandleRef.current = null
     setFileName(file.name)
+    setSaveStatus(null)
     const reader = new FileReader()
     reader.onload = (ev) => setContent(ev.target.result)
     reader.readAsText(file)
+  }
+
+  function scheduleAutosave(text) {
+    if (!fileHandleRef.current) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    if (savedFadeTimerRef.current) clearTimeout(savedFadeTimerRef.current)
+    setSaveStatus('saving')
+    saveTimerRef.current = setTimeout(async () => {
+      try {
+        const writable = await fileHandleRef.current.createWritable()
+        await writable.write(text)
+        await writable.close()
+        setSaveStatus('saved')
+        savedFadeTimerRef.current = setTimeout(() => setSaveStatus(null), 1500)
+      } catch (err) {
+        console.error('Autosave failed:', err)
+        setSaveStatus(null)
+      }
+    }, 600)
   }
 
   function setActiveBlock(el) {
@@ -207,8 +251,13 @@ export default function App() {
   return (
     <div className="app">
       <header className="toolbar">
-        <span className="app-title">Markdown Viewer</span>
+        <span className="app-title">Markdown Editor</span>
         {fileName && <span className="file-name">{fileName}</span>}
+        {saveStatus && (
+          <span className={`save-status ${saveStatus}`}>
+            {saveStatus === 'saving' ? 'Saving…' : 'Saved'}
+          </span>
+        )}
         {content && (
           <button
             className={`toggle-btn ${editorOpen ? 'active' : ''}`}
@@ -218,7 +267,7 @@ export default function App() {
             {'</>'}
           </button>
         )}
-        <button className="open-btn" onClick={() => inputRef.current.click()}>
+        <button className="open-btn" onClick={openFile}>
           Open file
         </button>
         <input
@@ -226,7 +275,7 @@ export default function App() {
           type="file"
           accept=".md,.markdown,.txt"
           style={{ display: 'none' }}
-          onChange={handleFile}
+          onChange={handleFileInput}
         />
       </header>
 
@@ -238,7 +287,7 @@ export default function App() {
                 ref={editorRef}
                 className="editor"
                 value={content}
-                onChange={e => setContent(e.target.value)}
+                onChange={e => { setContent(e.target.value); scheduleAutosave(e.target.value) }}
                 onKeyUp={handleEditorActivity}
                 onClick={handleEditorActivity}
                 spellCheck={false}
@@ -261,7 +310,7 @@ export default function App() {
         <main className="workspace">
           <div className="empty-state">
             <p>No file open</p>
-            <button className="open-btn large" onClick={() => inputRef.current.click()}>
+            <button className="open-btn large" onClick={openFile}>
               Choose a Markdown file
             </button>
           </div>
