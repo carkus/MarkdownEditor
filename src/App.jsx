@@ -251,7 +251,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="toolbar">
-        <span className="app-title">Markdown Editor</span>
+        <span className="app-title">Markdown Viewer</span>
         {fileName && <span className="file-name">{fileName}</span>}
         {saveStatus && (
           <span className={`save-status ${saveStatus}`}>
