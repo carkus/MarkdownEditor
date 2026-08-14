@@ -1,8 +1,9 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import 'highlight.js/styles/github.css'
+import { loadHistory, saveHistory, MAX_HISTORY } from './fileHistory'
 import './App.css'
 
 function rehypeAddLineNumbers() {
@@ -102,6 +103,8 @@ export default function App() {
   const [fileName, setFileName] = useState(null)
   const [editorOpen, setEditorOpen] = useState(false)
   const [saveStatus, setSaveStatus] = useState(null)
+  const [history, setHistory] = useState([])
+  const [historyOpen, setHistoryOpen] = useState(false)
   const inputRef = useRef(null)
   const editorRef = useRef(null)
   const previewRef = useRef(null)
@@ -110,9 +113,50 @@ export default function App() {
   const fileHandleRef = useRef(null)
   const saveTimerRef = useRef(null)
   const savedFadeTimerRef = useRef(null)
+  const historyMenuRef = useRef(null)
+  // Live handles only survive for the current session (JSON in localStorage
+  // can't hold a FileSystemFileHandle) — keyed by name, separate from the
+  // persisted `history` list.
+  const historyHandlesRef = useRef(new Map())
+  const supportsFsAccess = 'showOpenFilePicker' in window
+
+  useEffect(() => {
+    setHistory(loadHistory())
+  }, [])
+
+  useEffect(() => {
+    if (!historyOpen) return
+    function handleOutsideClick(e) {
+      if (historyMenuRef.current && !historyMenuRef.current.contains(e.target)) {
+        setHistoryOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    return () => document.removeEventListener('mousedown', handleOutsideClick)
+  }, [historyOpen])
+
+  function addToHistory(name, handle) {
+    if (handle) historyHandlesRef.current.set(name, handle)
+    setHistory(prev => {
+      const next = [{ name, openedAt: Date.now() }, ...prev.filter(e => e.name !== name)].slice(0, MAX_HISTORY)
+      saveHistory(next)
+      return next
+    })
+  }
+
+  function removeFromHistory(name, e) {
+    e.stopPropagation()
+    historyHandlesRef.current.delete(name)
+    setHistory(prev => {
+      const next = prev.filter(entry => entry.name !== name)
+      saveHistory(next)
+      return next
+    })
+  }
 
   async function openFile() {
-    if ('showOpenFilePicker' in window) {
+    setHistoryOpen(false)
+    if (supportsFsAccess) {
       try {
         const [handle] = await window.showOpenFilePicker({
           types: [{ description: 'Markdown', accept: { 'text/markdown': ['.md', '.markdown', '.txt'] } }],
@@ -122,12 +166,40 @@ export default function App() {
         setFileName(file.name)
         setContent(await file.text())
         setSaveStatus(null)
+        addToHistory(file.name, handle)
       } catch (err) {
         if (err.name !== 'AbortError') console.error(err)
       }
     } else {
       inputRef.current.click()
     }
+  }
+
+  // Tap a history row: reopen instantly if we still hold a live handle from
+  // this session, otherwise fall back to the file picker (browsers don't
+  // allow silently re-reading a file across reloads from a name alone).
+  async function reopenFromHistory(entry) {
+    setHistoryOpen(false)
+    const handle = historyHandlesRef.current.get(entry.name)
+    if (handle) {
+      try {
+        let perm = await handle.queryPermission({ mode: 'readwrite' })
+        if (perm !== 'granted') perm = await handle.requestPermission({ mode: 'readwrite' })
+        if (perm === 'granted') {
+          const file = await handle.getFile()
+          fileHandleRef.current = handle
+          setFileName(file.name)
+          setContent(await file.text())
+          setSaveStatus(null)
+          addToHistory(file.name, handle)
+          return
+        }
+      } catch (err) {
+        console.error('Failed to reopen file from history:', err)
+        historyHandlesRef.current.delete(entry.name)
+      }
+    }
+    openFile()
   }
 
   function handleFileInput(e) {
@@ -139,6 +211,7 @@ export default function App() {
     const reader = new FileReader()
     reader.onload = (ev) => setContent(ev.target.result)
     reader.readAsText(file)
+    addToHistory(file.name)
   }
 
   function scheduleAutosave(text) {
@@ -266,6 +339,36 @@ export default function App() {
           >
             {'</>'}
           </button>
+        )}
+        {history.length > 0 && (
+          <div className="history-dropdown" ref={historyMenuRef}>
+            <button
+              className={`history-btn ${historyOpen ? 'active' : ''}`}
+              onClick={() => setHistoryOpen(o => !o)}
+              title="Recently opened files"
+            >
+              Recent ▾
+            </button>
+            {historyOpen && (
+              <ul className="history-menu">
+                {history.map(entry => (
+                  <li key={entry.name} className="history-row">
+                    <button className="history-item" onClick={() => reopenFromHistory(entry)} title={entry.name}>
+                      {entry.name}
+                    </button>
+                    <button
+                      className="history-delete"
+                      onClick={(e) => removeFromHistory(entry.name, e)}
+                      title="Remove from history"
+                      aria-label={`Remove ${entry.name} from history`}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
         <button className="open-btn" onClick={openFile}>
           Open file

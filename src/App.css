@@ -103,6 +103,100 @@ body {
   background: #b896e8;
 }
 
+/* ── History dropdown ──────────────────────────────────── */
+
+.history-dropdown {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.history-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+  color: #a6adc8;
+  background: #2a2a3e;
+  border: 1px solid #444;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.history-btn:hover,
+.history-btn.active {
+  color: #cdd6f4;
+  border-color: #666;
+}
+
+.history-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: max-content;
+  min-width: 320px;
+  max-width: min(640px, 90vw);
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: #2a2a3e;
+  border: 1px solid #444;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+  z-index: 20;
+}
+
+.history-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.history-row + .history-row {
+  margin-top: 2px;
+}
+
+.history-item {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: ui-monospace, Consolas, monospace;
+  text-align: left;
+  color: #cdd6f4;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item:hover {
+  background: rgba(203, 166, 247, 0.15);
+  color: #cba6f7;
+}
+
+.history-delete {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  line-height: 1;
+  font-size: 15px;
+  color: #6c7086;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.history-delete:hover {
+  color: #f38ba8;
+  background: rgba(243, 139, 168, 0.15);
+}
+
 /* ── Workspace ─────────────────────────────────────────── */
 
 .workspace {
