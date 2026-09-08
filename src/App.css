@@ -408,15 +408,30 @@ body {
   border-radius: 8px;
 }
 
+/* ── Page frame ────────────────────────────────────────── */
+/* Wraps the editable A4 page plus the page-break overlay that's drawn on
+   top of it — a plain sibling <div>, not a child of the contentEditable
+   article, so it can't end up inside the saved markdown. */
+
+.page-frame {
+  position: relative;
+  width: 210mm;
+  max-width: 100%;
+}
+
 /* ── Markdown body ─────────────────────────────────────── */
 
+/* Sized to an A4 page (210mm × 297mm) so the on-screen document reads like a
+   real page rather than an unbounded column of text; grows past 297mm (via
+   min-height, not a hard cap) when content overflows a single page rather
+   than clipping it. */
 .markdown-body {
-  --pad-x: 48px;
+  --pad-x: 25mm;
   width: 100%;
-  max-width: 780px;
+  min-height: 297mm;
   background: #fff;
-  border-radius: 8px;
-  padding: 40px var(--pad-x);
+  border-radius: 2px;
+  padding: 20mm var(--pad-x);
   box-shadow: 0 1px 4px rgba(0,0,0,.08);
   font-size: 16px;
   line-height: 1.7;
@@ -427,6 +442,80 @@ body {
 
 .markdown-body:focus-visible {
   box-shadow: 0 1px 4px rgba(0,0,0,.08), 0 0 0 2px rgba(203, 166, 247, 0.6);
+}
+
+/* ── Page-break indicators ─────────────────────────────── */
+/* A dashed line + "Page N" label overlaid at every A4 page boundary as the
+   document grows past one page — purely a visual guide to where a
+   print/PDF export will actually paginate (see the `@media print` block
+   below); the document itself keeps flowing underneath as one continuous
+   editable page. */
+
+.page-breaks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.page-break-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px dashed #b0b0b0;
+}
+
+.page-break-label {
+  transform: translateY(-100%);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: ui-monospace, Consolas, monospace;
+  color: #888;
+  background: #f5f5f5;
+  border: 1px solid #d0d0d0;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+}
+
+/* ── Table row delete buttons ──────────────────────────── */
+/* Native contentEditable delete/backspace doesn't understand <tr>/<td>
+   structure and can corrupt neighbouring cells (merged text, mangled
+   ==highlight== spans) instead of cleanly removing a row. This overlay puts
+   a real "×" button in the page's right margin next to every table body
+   row, wired to a direct tr.remove() instead. Positioned like .page-breaks
+   (a sibling of the article, never a child, so it can't leak into the
+   saved markdown) but with pointer-events re-enabled per-button so the
+   buttons stay clickable. */
+
+.table-row-controls {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.row-delete-btn {
+  position: absolute;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  margin-left: 6px;
+  padding: 0;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  background: #f5f5f5;
+  color: #888;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.row-delete-btn:hover {
+  background: #fdecea;
+  border-color: #e0a0a0;
+  color: #c0392b;
 }
 
 /* Code blocks stay contentEditable="false" — edit code via the raw source
@@ -518,16 +607,26 @@ body {
 .markdown-body li + li { margin-top: 4px; }
 
 .markdown-body table {
+  /* table-layout: auto (the default) sizes columns from content and can
+     grow past width: 100% for long unbreakable strings (URLs, code) — fixed
+     layout holds the table to the page width and lets column widths be
+     shared out evenly instead. */
+  table-layout: fixed;
   border-collapse: collapse;
   width: 100%;
   margin: 0 0 1em;
+  font-size: 0.85em;
 }
 
 .markdown-body th,
 .markdown-body td {
   border: 1px solid #d0d7de;
-  padding: 8px 12px;
+  padding: 6px 10px;
   text-align: left;
+  /* Long unbreakable content (URLs, paths) wraps inside its column instead
+     of forcing the column — and the table — wider than the page. */
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .markdown-body th {
@@ -553,5 +652,75 @@ body {
 @media (max-width: 700px) {
   .editor-panel { width: 100%; border-right: none; border-bottom: 1px solid #333; }
   .workspace.split { flex-direction: column; }
-  .markdown-body { --pad-x: 20px; padding: 24px var(--pad-x); }
+  .page-frame { width: 100%; }
+  .markdown-body { --pad-x: 20px; min-height: 0; padding: 24px var(--pad-x); }
+  /* Page-break offsets are computed from the A4-width on-screen height, which
+     no longer matches true print pagination once the page itself has been
+     narrowed below 210mm — the indicators would be misleading here. */
+  .page-breaks { display: none; }
+  /* The delete buttons sit in the right-margin gutter outside the table's
+     right edge — there's no room for that gutter once --pad-x is squeezed
+     down to 20px on narrow viewports, so they'd overflow the page. */
+  .table-row-controls { display: none; }
+}
+
+/* ── Print (A4) ────────────────────────────────────────── */
+/* Printing / "Save as PDF" renders just the document itself at true A4 size
+   — the app chrome (toolbar, history, source panel, format toolbar) and the
+   cursor-sync/selection highlighting are all print noise. */
+
+@media print {
+  @page {
+    size: A4;
+    margin: 20mm;
+  }
+
+  .toolbar,
+  .editor-panel,
+  .preview-toolbar {
+    display: none !important;
+  }
+
+  html, body, #root, .app, .workspace, .preview-panel {
+    height: auto;
+    overflow: visible;
+    background: #fff;
+  }
+
+  .preview-panel {
+    padding: 0;
+    display: block;
+  }
+
+  .page-frame {
+    width: auto;
+    max-width: none;
+  }
+
+  .markdown-body {
+    width: auto;
+    min-height: 0;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    box-shadow: none;
+    border-radius: 0;
+  }
+
+  .markdown-body [data-line].active-block,
+  .markdown-body .active-code-line {
+    background: none !important;
+    box-shadow: none !important;
+  }
+
+  /* Screen-only editing aids — not part of the printed document. */
+  .table-row-controls {
+    display: none !important;
+  }
+
+  /* Screen-only guide — real pagination here comes from the browser's own
+     @page-based print reflow, not this overlay. */
+  .page-breaks {
+    display: none !important;
+  }
 }

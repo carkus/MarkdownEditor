@@ -163,6 +163,12 @@ function freezeCodeBlocks(article) {
   article.querySelectorAll('pre').forEach(pre => { pre.contentEditable = 'false' })
 }
 
+// CSS defines 1mm as exactly 96/25.4 px, regardless of actual screen DPI —
+// using that same ratio here (rather than measuring the rendered element)
+// keeps the on-screen page-break markers exactly aligned with
+// .markdown-body's `min-height: 297mm` and with real A4 print pagination.
+const PAGE_HEIGHT_PX = (297 * 96) / 25.4
+
 export default function App() {
   const [content, setContent] = useState(null)
   const [fileName, setFileName] = useState(null)
@@ -485,6 +491,45 @@ export default function App() {
     freezeCodeBlocks(article)
   }, [content])
 
+  // Recomputes the two layout overlays that sit on top of (but outside) the
+  // contentEditable article — page-break lines and per-row table delete
+  // buttons — any time the document's rendered layout changes. Both are
+  // plain sibling elements (see the JSX), never children of the article, so
+  // neither can end up inside the saved markdown.
+  useEffect(() => {
+    const article = articleRef.current
+    if (!article) return
+    function updateOverlays() {
+      // Page breaks: purely a visual indicator of where a print/PDF export
+      // would paginate, not real per-page reflow. PAGE_HEIGHT_PX matches
+      // .markdown-body's `min-height: 297mm` using the same fixed mm→px
+      // ratio CSS itself uses, so a break drawn at page N lines up with
+      // where the browser's own @page-based print pagination actually falls.
+      const pageCount = Math.max(1, Math.ceil(article.offsetHeight / PAGE_HEIGHT_PX))
+      setPageBreaks(Array.from({ length: pageCount - 1 }, (_, i) => (i + 1) * PAGE_HEIGHT_PX))
+
+      // Table row delete buttons: a small "×" floated in the page's right
+      // margin next to every table body row (header rows are excluded —
+      // deleting the header would leave an invalid GFM table). Native
+      // contentEditable delete/backspace doesn't understand table structure
+      // and can silently corrupt neighbouring cells instead of cleanly
+      // removing a row (mangled ==highlight== spans, merged cell text) —
+      // this button removes the whole <tr> directly instead.
+      const article2 = articleRef.current
+      const articleRect = article2.getBoundingClientRect()
+      const rows = []
+      article2.querySelectorAll('table tbody tr').forEach((tr) => {
+        const r = tr.getBoundingClientRect()
+        rows.push({ top: r.top - articleRect.top, right: r.right - articleRect.left, height: r.height, element: tr })
+      })
+      setTableRowControls(rows)
+    }
+    updateOverlays()
+    const observer = new ResizeObserver(updateOverlays)
+    observer.observe(article)
+    return () => observer.disconnect()
+  }, [content])
+
   // Converts the live preview DOM back into markdown (via Turndown) and
   // writes it into `content` + triggers autosave — the reverse direction of
   // the effect above. Called after every preview edit (debounced for plain
@@ -503,6 +548,14 @@ export default function App() {
     setContent(markdown)
     scheduleAutosave(markdown)
   }, [])
+
+  // Removes one table row directly from the DOM (rather than relying on
+  // native contentEditable delete, which doesn't understand table structure
+  // and can corrupt neighbouring cells) and syncs the result to markdown.
+  const deleteTableRow = useCallback(function deleteTableRow(tr) {
+    tr.remove()
+    syncPreviewToMarkdown()
+  }, [syncPreviewToMarkdown])
 
   const handlePreviewInput = useCallback(function handlePreviewInput() {
     if (previewSyncTimerRef.current) clearTimeout(previewSyncTimerRef.current)
@@ -569,6 +622,14 @@ export default function App() {
   }, [applyBold, applyItalic, toggleHighlight])
 
   const [hasPreviewSelection, setHasPreviewSelection] = useState(false)
+  // Px offsets (from the top of the page frame) where a page-break
+  // indicator line should be drawn — one entry per page boundary after the
+  // first page. Recomputed whenever the document's rendered height changes.
+  const [pageBreaks, setPageBreaks] = useState([])
+  // Bounding-box + element ref for every table body row currently rendered,
+  // used to position the per-row delete buttons (see the table-row-controls
+  // overlay in the JSX). Recomputed alongside pageBreaks.
+  const [tableRowControls, setTableRowControls] = useState([])
 
   useEffect(() => {
     function handleSelectionChange() {
@@ -713,13 +774,38 @@ export default function App() {
               </button>
               <span className="preview-toolbar-hint">Type directly to edit, or select text to format</span>
             </div>
-            <article
-              className="markdown-body"
-              ref={articleRef}
-              contentEditable
-              suppressContentEditableWarning
-              onInput={handlePreviewInput}
-            />
+            <div className="page-frame">
+              <article
+                className="markdown-body"
+                ref={articleRef}
+                contentEditable
+                suppressContentEditableWarning
+                onInput={handlePreviewInput}
+              />
+              <div className="page-breaks" aria-hidden="true">
+                {pageBreaks.map((top, i) => (
+                  <div key={top} className="page-break-line" style={{ top: `${top}px` }}>
+                    <span className="page-break-label">Page {i + 2}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="table-row-controls">
+                {tableRowControls.map((row, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    className="row-delete-btn"
+                    title="Delete row"
+                    aria-label="Delete table row"
+                    style={{ top: `${row.top}px`, height: `${row.height}px`, left: `${row.right}px` }}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => deleteTableRow(row.element)}
+                  >
+                    ×
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </main>
       ) : (
